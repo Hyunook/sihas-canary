@@ -10,6 +10,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .bcm import get_coordinator
+from .bcm_entities import bcm_binary_sensors
 from .const import (
     CONF_CFG,
     CONF_IP,
@@ -30,6 +32,8 @@ PLATFORM_SCHEMA = SIHAS_PLATFORM_SCHEMA
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
+    if entry.data[CONF_TYPE] == "BCM":
+        async_add_entities(bcm_binary_sensors(get_coordinator(hass, entry)))
     if entry.data[CONF_TYPE] == "ACM":
         async_add_entities(
             [

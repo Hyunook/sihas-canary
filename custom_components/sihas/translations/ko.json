@@ -34,6 +34,34 @@
         "sensor": {
             "bcm_current_temperature": {
                 "name": "현재 실내 온도"
+            },
+            "bcm_ondol_current_temperature": {
+                "name": "현재 온돌 온도"
+            },
+            "bcm_hot_water_current_temperature": {
+                "name": "현재 온수 온도"
+            },
+            "bcm_away_temperature": {
+                "name": "외출 설정온도"
+            },
+            "bcm_error_code": {
+                "name": "에러 코드"
+            },
+            "bcm_manufacturer": {
+                "name": "보일러 제조사",
+                "state": {
+                    "경동": "경동",
+                    "귀뚜라미": "귀뚜라미",
+                    "대성": "대성",
+                    "린나이": "린나이",
+                    "기타1": "기타1",
+                    "기타2": "기타2",
+                    "기타3": "기타3",
+                    "테스트 데모": "테스트 데모"
+                }
+            },
+            "bcm_controller_model": {
+                "name": "조절기 모델"
             }
         },
         "number": {
@@ -45,6 +73,45 @@
             },
             "bcm_hot_water_temperature": {
                 "name": "온수난방온도"
+            },
+            "bcm_timer_interval": {
+                "name": "예약 주기"
+            },
+            "bcm_timer_run_time": {
+                "name": "예약 가동 시간"
+            },
+            "bcm_room_max": {
+                "name": "실내 상한 온도"
+            },
+            "bcm_room_min": {
+                "name": "실내 하한 온도"
+            },
+            "bcm_ondol_max": {
+                "name": "온돌 상한 온도"
+            },
+            "bcm_ondol_min": {
+                "name": "온돌 하한 온도"
+            },
+            "bcm_hot_water_max": {
+                "name": "온수 상한 온도"
+            },
+            "bcm_hot_water_min": {
+                "name": "온수 하한 온도"
+            },
+            "bcm_temperature_calibration": {
+                "name": "온도 보정"
+            },
+            "bcm_period_start_hour": {
+                "name": "구간반복 시작 시각"
+            },
+            "bcm_period_end_hour": {
+                "name": "구간반복 종료 시각"
+            },
+            "bcm_period_interval": {
+                "name": "구간반복 주기"
+            },
+            "bcm_period_run_time": {
+                "name": "구간반복 가동 시간"
             }
         },
         "select": {
@@ -70,6 +137,48 @@
                     "중온": "중온",
                     "고온": "고온"
                 }
+            },
+            "bcm_backlight": {
+                "name": "백라이트",
+                "state": {
+                    "자동 OFF": "자동 OFF",
+                    "ON/OFF": "ON/OFF",
+                    "항상 OFF": "항상 OFF",
+                    "항상 ON": "항상 ON"
+                }
+            },
+            "bcm_touch_lock": {
+                "name": "터치 잠금",
+                "state": {
+                    "잠금 해제": "잠금 해제",
+                    "온도 잠금": "온도 잠금",
+                    "전체 잠금": "전체 잠금"
+                }
+            },
+            "bcm_period_mode": {
+                "name": "구간반복 운전모드",
+                "state": {
+                    "예약제어": "예약제어",
+                    "온도제어": "온도제어"
+                }
+            },
+            "bcm_heating_strength": {
+                "name": "난방세기",
+                "state": {
+                    "약": "약",
+                    "중": "중",
+                    "강": "강"
+                }
+            },
+            "bcm_heating_water_temperature": {
+                "name": "난방수온도",
+                "state": {
+                    "여름": "여름",
+                    "가을": "가을",
+                    "봄": "봄",
+                    "초겨울": "초겨울",
+                    "겨울": "겨울"
+                }
             }
         },
         "switch": {
@@ -78,6 +187,44 @@
             },
             "bcm_timer": {
                 "name": "예약 모드"
+            },
+            "bcm_period_repeat": {
+                "name": "구간반복"
+            },
+            "bcm_period_sun": {
+                "name": "구간반복 일요일"
+            },
+            "bcm_period_mon": {
+                "name": "구간반복 월요일"
+            },
+            "bcm_period_tue": {
+                "name": "구간반복 화요일"
+            },
+            "bcm_period_wed": {
+                "name": "구간반복 수요일"
+            },
+            "bcm_period_thu": {
+                "name": "구간반복 목요일"
+            },
+            "bcm_period_fri": {
+                "name": "구간반복 금요일"
+            },
+            "bcm_period_sat": {
+                "name": "구간반복 토요일"
+            },
+            "bcm_buzzer": {
+                "name": "부저"
+            }
+        },
+        "binary_sensor": {
+            "bcm_flame": {
+                "name": "연소"
+            },
+            "bcm_water_refill": {
+                "name": "물보충"
+            },
+            "bcm_boiler_link": {
+                "name": "보일러 통신"
             }
         }
     }

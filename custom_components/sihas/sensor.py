@@ -28,6 +28,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .bcm import BcmCoordinator, BcmEntity, get_coordinator
+from .bcm_entities import bcm_sensors
 from .const import (
     CONF_CFG,
     CONF_IP,
@@ -214,6 +215,7 @@ async def async_setup_entry(
     match entry.data[CONF_TYPE]:
         case "BCM":
             async_add_entities([BcmCurrentTemperature(get_coordinator(hass, entry))])
+            async_add_entities(bcm_sensors(get_coordinator(hass, entry)))
 
         case "PMM":
             pmm = Pmm300(

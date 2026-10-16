@@ -34,6 +34,34 @@
         "sensor": {
             "bcm_current_temperature": {
                 "name": "Current temperature"
+            },
+            "bcm_ondol_current_temperature": {
+                "name": "Current ondol temperature"
+            },
+            "bcm_hot_water_current_temperature": {
+                "name": "Current hot water temperature"
+            },
+            "bcm_away_temperature": {
+                "name": "Away temperature"
+            },
+            "bcm_error_code": {
+                "name": "Error code"
+            },
+            "bcm_manufacturer": {
+                "name": "Boiler manufacturer",
+                "state": {
+                    "경동": "Kyungdong",
+                    "귀뚜라미": "Kiturami",
+                    "대성": "Daesung",
+                    "린나이": "Rinnai",
+                    "기타1": "Other 1",
+                    "기타2": "Other 2",
+                    "기타3": "Other 3",
+                    "테스트 데모": "Test demo"
+                }
+            },
+            "bcm_controller_model": {
+                "name": "Controller model"
             }
         },
         "number": {
@@ -45,6 +73,45 @@
             },
             "bcm_hot_water_temperature": {
                 "name": "Hot water target temperature"
+            },
+            "bcm_timer_interval": {
+                "name": "Timer interval"
+            },
+            "bcm_timer_run_time": {
+                "name": "Timer run time"
+            },
+            "bcm_room_max": {
+                "name": "Room temperature upper limit"
+            },
+            "bcm_room_min": {
+                "name": "Room temperature lower limit"
+            },
+            "bcm_ondol_max": {
+                "name": "Ondol temperature upper limit"
+            },
+            "bcm_ondol_min": {
+                "name": "Ondol temperature lower limit"
+            },
+            "bcm_hot_water_max": {
+                "name": "Hot water temperature upper limit"
+            },
+            "bcm_hot_water_min": {
+                "name": "Hot water temperature lower limit"
+            },
+            "bcm_temperature_calibration": {
+                "name": "Temperature calibration"
+            },
+            "bcm_period_start_hour": {
+                "name": "Interval cycle start hour"
+            },
+            "bcm_period_end_hour": {
+                "name": "Interval cycle end hour"
+            },
+            "bcm_period_interval": {
+                "name": "Interval cycle period"
+            },
+            "bcm_period_run_time": {
+                "name": "Interval cycle run time"
             }
         },
         "select": {
@@ -70,6 +137,48 @@
                     "중온": "Medium",
                     "고온": "High"
                 }
+            },
+            "bcm_backlight": {
+                "name": "Backlight",
+                "state": {
+                    "자동 OFF": "Auto off",
+                    "ON/OFF": "On/off",
+                    "항상 OFF": "Always off",
+                    "항상 ON": "Always on"
+                }
+            },
+            "bcm_touch_lock": {
+                "name": "Touch lock",
+                "state": {
+                    "잠금 해제": "Unlocked",
+                    "온도 잠금": "Temperature locked",
+                    "전체 잠금": "Fully locked"
+                }
+            },
+            "bcm_period_mode": {
+                "name": "Interval cycle mode",
+                "state": {
+                    "예약제어": "Timed",
+                    "온도제어": "Temperature controlled"
+                }
+            },
+            "bcm_heating_strength": {
+                "name": "Heating strength",
+                "state": {
+                    "약": "Low",
+                    "중": "Medium",
+                    "강": "High"
+                }
+            },
+            "bcm_heating_water_temperature": {
+                "name": "Heating water temperature",
+                "state": {
+                    "여름": "Summer",
+                    "가을": "Autumn",
+                    "봄": "Spring",
+                    "초겨울": "Early winter",
+                    "겨울": "Winter"
+                }
             }
         },
         "switch": {
@@ -78,6 +187,44 @@
             },
             "bcm_timer": {
                 "name": "Timer"
+            },
+            "bcm_period_repeat": {
+                "name": "Interval cycle"
+            },
+            "bcm_period_sun": {
+                "name": "Interval cycle Sunday"
+            },
+            "bcm_period_mon": {
+                "name": "Interval cycle Monday"
+            },
+            "bcm_period_tue": {
+                "name": "Interval cycle Tuesday"
+            },
+            "bcm_period_wed": {
+                "name": "Interval cycle Wednesday"
+            },
+            "bcm_period_thu": {
+                "name": "Interval cycle Thursday"
+            },
+            "bcm_period_fri": {
+                "name": "Interval cycle Friday"
+            },
+            "bcm_period_sat": {
+                "name": "Interval cycle Saturday"
+            },
+            "bcm_buzzer": {
+                "name": "Buzzer"
+            }
+        },
+        "binary_sensor": {
+            "bcm_flame": {
+                "name": "Burner"
+            },
+            "bcm_water_refill": {
+                "name": "Water refill"
+            },
+            "bcm_boiler_link": {
+                "name": "Boiler communication"
             }
         }
     }

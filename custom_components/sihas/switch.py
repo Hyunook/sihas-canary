@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .bcm import BATH_BIT, BcmCoordinator, BcmEntity, Register, get_coordinator
+from .bcm_entities import bcm_switches
 from .const import (
     CONF_CFG,
     CONF_IP,
@@ -46,6 +47,7 @@ async def async_setup_entry(
         if coordinator.has_bath:
             entities.append(BcmBathMode(coordinator))
         async_add_entities(entities)
+        async_add_entities(bcm_switches(coordinator))
     elif entry.data[CONF_TYPE] == "CCM":
         async_add_entities(
             [

@@ -13,6 +13,7 @@ from .bcm import (
     Register,
     get_coordinator,
 )
+from .bcm_entities import bcm_selects
 from .const import CONF_TYPE
 
 PARALLEL_UPDATES = 0
@@ -28,6 +29,7 @@ async def async_setup_entry(
     if coordinator.hot_water_options:
         entities.append(BcmHotWaterLevel(coordinator))
     async_add_entities(entities)
+    async_add_entities(bcm_selects(coordinator))
 
 
 class BcmOperationMode(BcmEntity, SelectEntity):
