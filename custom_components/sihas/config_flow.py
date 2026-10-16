@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any, cast
 
 import homeassistant.helpers.config_validation as cv
@@ -28,6 +29,18 @@ from .sihas_base import SihasBase
 from .util import MacConv, parse_scan_message
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def discovery_mac(mac: str) -> str:
+    """The MAC the DHCP and zeroconf flows use as unique_id: SiHAS OUI + device bytes.
+
+    The DHCP matcher only fires for the SiHAS OUI and zeroconf rebuilds the MAC from it,
+    but the module also joins Wi-Fi with its Espressif factory MAC (same last three bytes).
+    """
+    digits = re.sub(r"[^0-9a-f]", "", mac.lower())
+    if len(digits) != 12:
+        raise ValueError(f"invalid MAC address: {mac!r}")
+    return MacConv.insert_colon(MAC_OUI + digits[6:])
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -160,29 +173,46 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="can not scan found device")
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input:
-            # TODO: may need to confirm user input and check communicate with device.
-            self.data[CONF_IP] = user_input[CONF_IP]
-            self.data[CONF_MAC] = user_input[CONF_MAC]
-            self.data[CONF_TYPE] = user_input[CONF_TYPE]
-            self.data[CONF_CFG] = user_input[CONF_CFG]
-            self.data[CONF_NAME] = user_input[CONF_NAME]
-            return self.async_create_entry(
-                title=user_input[CONF_NAME],
-                data=self.data,
-            )
+            # Without a unique_id the DHCP flow cannot match this entry and update its IP.
+            ip = user_input[CONF_IP]
+            resp = await self.hass.async_add_executor_job(scan, pb.scan(), ip, 3)
+            try:
+                mac = discovery_mac(parse_scan_message(resp)[CONF_MAC]) if resp else None
+            except ValueError as err:
+                _LOGGER.warning("unexpected scan response from %s: %s", ip, err)
+                mac = None
+            if mac is None:
+                errors["base"] = "cannot_connect"
+            else:
+                entered = user_input.get(CONF_MAC)
+                if entered and not mac.endswith(MacConv.insert_colon(entered.lower())[-8:]):
+                    _LOGGER.warning("entered MAC %s is not this device (%s)", entered, mac)
+                await self.async_set_unique_id(mac)
+                self._abort_if_unique_id_configured(updates={CONF_IP: ip})
+
+                self.data[CONF_IP] = ip
+                self.data[CONF_MAC] = mac
+                self.data[CONF_TYPE] = user_input[CONF_TYPE]
+                self.data[CONF_CFG] = user_input[CONF_CFG]
+                self.data[CONF_NAME] = user_input[CONF_NAME]
+                return self.async_create_entry(
+                    title=user_input[CONF_NAME],
+                    data=self.data,
+                )
 
         DATA_SCHEMA = vol.Schema(
             {
                 vol.Required(CONF_IP): str,
-                vol.Required(CONF_MAC): str,
+                vol.Optional(CONF_MAC): str,
                 vol.Required(CONF_TYPE): vol.In(SUPPORT_DEVICE),
                 vol.Required(CONF_CFG): int,
                 vol.Required(CONF_NAME): str,
             }
         )
 
-        return self.async_show_form(step_id="user", data_schema=DATA_SCHEMA)
+        return self.async_show_form(step_id="user", data_schema=DATA_SCHEMA, errors=errors)
 
 
 class CannotConnect(HomeAssistantError):
