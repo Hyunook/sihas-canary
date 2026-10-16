@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import IntEnum
+from typing import Final
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ATTRIBUTION
@@ -113,6 +114,13 @@ class BcmState:
         return lower, upper
 
 
+# The controller answers in a few ms but now and then stalls for ~2 s (2.03 s seen on
+# 2026-10-16); the shared 0.5 s timeout turned each stall into a failed poll.
+BCM_TIMEOUT: Final = 1.5
+# Isolated failed polls keep the last state; this many in a row are tolerated.
+MAX_SKIPPED_POLLS: Final = 2
+
+
 class BcmClient:
     """Synchronous transport using the integration's existing packet/sender layer."""
 
@@ -120,7 +128,7 @@ class BcmClient:
         self.ip = ip
 
     def read(self) -> BcmState:
-        response = send(pb.poll(), self.ip, retry=3)
+        response = send(pb.poll(), self.ip, retry=3, timeout=BCM_TIMEOUT)
         if len(response) != POLL_RESPONSE_LENGTH or response[7:9] != bytes(
             (3, REG_LENG * 2)
         ):
@@ -130,7 +138,7 @@ class BcmClient:
 
     def write(self, register: Register, value: int) -> None:
         request = pb.command(register, value)
-        response = send(request, self.ip, retry=3)
+        response = send(request, self.ip, retry=3, timeout=BCM_TIMEOUT)
         # A write response must echo the requested register and value.
         if response != request:
             raise ValueError("Invalid BCM write acknowledgement")
@@ -151,6 +159,7 @@ class BcmCoordinator(DataUpdateCoordinator[BcmState]):
         self.client = BcmClient(entry.data[CONF_IP])
         self._io_lock = asyncio.Lock()
         self._stopping = False
+        self._skipped_polls = 0
         # Frozen after first successful refresh; rediscovered on reload.
         self.hot_water_kind: str | None = None
         self.has_bath = False
@@ -179,10 +188,20 @@ class BcmCoordinator(DataUpdateCoordinator[BcmState]):
             # Cancellation must not release the lock while executor I/O is running.
             task = asyncio.create_task(self._read())
             try:
-                return await asyncio.shield(task)
+                state = await asyncio.shield(task)
             except asyncio.CancelledError:
                 await task
                 raise
+            except UpdateFailed:
+                if self.data is None or self._skipped_polls >= MAX_SKIPPED_POLLS:
+                    raise
+                self._skipped_polls += 1
+                _LOGGER.debug(
+                    "BCM poll failed, keeping last state (%d)", self._skipped_polls
+                )
+                return self.data
+            self._skipped_polls = 0
+            return state
 
     def temperature_limits(
         self, state: BcmState, mode: str | None

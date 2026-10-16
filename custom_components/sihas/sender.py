@@ -8,7 +8,13 @@ from .util import IpConv
 _LOGGER = logging.getLogger(__name__)
 
 
-def send(data: bytes, ip: str, port: int = PORT, retry: int = 1) -> bytes:
+def send(
+    data: bytes,
+    ip: str,
+    port: int = PORT,
+    retry: int = 1,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> bytes:
     """Send packet to device
 
     Raise ModbusNotEnabledError, socket.timeout and others
@@ -19,7 +25,7 @@ def send(data: bytes, ip: str, port: int = PORT, retry: int = 1) -> bytes:
     while retry:
         try:
             sock.sendto(data, (ip, port))
-            sock.settimeout(DEFAULT_TIMEOUT)
+            sock.settimeout(timeout)
             resp = sock.recv(BUF_SIZE)
             if (resp[7] & 0x08) != 0:
                 raise ModbusNotEnabledError(ip)

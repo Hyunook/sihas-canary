@@ -33,8 +33,11 @@ class FakeBoiler:
         for index, value in {**LIVE, **(overrides or {})}.items():
             self.registers[index] = value
         self.writes: list[tuple[int, int]] = []
+        self.failing = False
 
     def read(self) -> BcmState:
+        if self.failing:
+            raise TimeoutError
         return BcmState(tuple(self.registers))
 
     def write(self, register: int, value: int) -> None:
@@ -236,3 +239,24 @@ async def test_two_step_hot_water(hass, enable_custom_integrations):
     assert state(hass, entity_id) == "고온"
     assert hass.states.get(f"number.{DEV}_hot_water_temperature") is None
     assert hass.states.get(f"number.{DEV}_hot_water_min") is None
+
+
+async def test_isolated_failed_polls_keep_last_state(hass, entry, boiler):
+    """Two failed polls in a row keep the last state; the third marks it unavailable."""
+    climate = f"climate.{DEV}"
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    async def poll() -> None:
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+
+    boiler.failing = True
+    for _ in range(2):
+        await poll()
+        assert state(hass, climate) != "unavailable"
+    await poll()
+    assert state(hass, climate) == "unavailable"
+
+    boiler.failing = False
+    await poll()
+    assert state(hass, climate) != "unavailable"
