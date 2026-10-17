@@ -1,15 +1,20 @@
 """Set up the BCM-300 entry against an in-memory device and drive the new entities."""
 
+import asyncio
+import threading
+from collections.abc import Callable
 from unittest.mock import patch
 
 import pytest
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.translation import async_get_translations
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sihas.bcm import BcmState
+from custom_components.sihas.bcm_codec import PeriodRepeat
+from custom_components.sihas.bcm_entities import _async_set_period
 from custom_components.sihas.const import DOMAIN
 
 MAC = "a8:2b:d6:e7:d5:05"
@@ -34,6 +39,9 @@ class FakeBoiler:
             self.registers[index] = value
         self.writes: list[tuple[int, int]] = []
         self.failing = False
+        # Runs in the executor thread before a write lands (the app, a stall);
+        # raising makes that write fail.
+        self.on_write: Callable[[int, int], None] | None = None
 
     def read(self) -> BcmState:
         if self.failing:
@@ -41,6 +49,8 @@ class FakeBoiler:
         return BcmState(tuple(self.registers))
 
     def write(self, register: int, value: int) -> None:
+        if self.on_write is not None:
+            self.on_write(int(register), value)
         self.writes.append((int(register), value))
         self.registers[register] = value
 
@@ -82,6 +92,21 @@ def state(hass: HomeAssistant, entity_id: str) -> str:
     return current.state
 
 
+async def _poll(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    await hass.data[DOMAIN][entry.entry_id].async_refresh()
+    await hass.async_block_till_done()
+
+
+def _with_end_hour(end: int) -> tuple[int, int]:
+    """r50/r51 of the live reading with only the end hour changed."""
+    period = PeriodRepeat.from_registers(LIVE[50], LIVE[51])
+    return period.with_changes(end_hour=end).to_registers()
+
+
+def _device_period(boiler: FakeBoiler) -> PeriodRepeat:
+    return PeriodRepeat.from_registers(boiler.registers[50], boiler.registers[51])
+
+
 async def test_live_values(hass, entry):
     expected = {
         f"select.{DEV}_operation_mode": "실내",
@@ -108,7 +133,8 @@ async def test_live_values(hass, entry):
         f"switch.{DEV}_buzzer": "off",
         f"sensor.{DEV}_current_temperature": "26.0",
         f"sensor.{DEV}_ondol_current_temperature": "47",
-        f"sensor.{DEV}_hot_water_current_temperature": "0",
+        # 순간식 NCTR-60 has no tank: r10 reads 0 and the app hides it.
+        f"sensor.{DEV}_hot_water_current_temperature": "unknown",
         f"sensor.{DEV}_away_temperature": "8",
         f"sensor.{DEV}_error_code": "0",
         f"sensor.{DEV}_manufacturer": "귀뚜라미",
@@ -244,19 +270,151 @@ async def test_two_step_hot_water(hass, enable_custom_integrations):
 async def test_isolated_failed_polls_keep_last_state(hass, entry, boiler):
     """Two failed polls in a row keep the last state; the third marks it unavailable."""
     climate = f"climate.{DEV}"
-    coordinator = hass.data[DOMAIN][entry.entry_id]
-
-    async def poll() -> None:
-        await coordinator.async_refresh()
-        await hass.async_block_till_done()
-
     boiler.failing = True
     for _ in range(2):
-        await poll()
+        await _poll(hass, entry)
         assert state(hass, climate) != "unavailable"
-    await poll()
+    await _poll(hass, entry)
     assert state(hass, climate) == "unavailable"
 
     boiler.failing = False
-    await poll()
+    await _poll(hass, entry)
     assert state(hass, climate) != "unavailable"
+
+
+async def test_command_read_back_resets_skipped_polls(hass, entry, boiler):
+    """A command's read-back proves the link, like a successful poll does."""
+    climate = f"climate.{DEV}"
+    boiler.failing = True
+    for _ in range(2):
+        await _poll(hass, entry)
+    boiler.failing = False
+    await _call(hass, "switch", "turn_on", f"switch.{DEV}_buzzer")
+    boiler.failing = True
+    await _poll(hass, entry)
+    assert state(hass, climate) != "unavailable"
+
+
+async def test_failed_command_is_not_revived_by_a_failed_poll(hass, entry, boiler):
+    """After a failed command the next failed poll must not bring back stale data."""
+    climate = f"climate.{DEV}"
+    boiler.failing = True
+    with pytest.raises(HomeAssistantError):
+        await _call(hass, "switch", "turn_on", f"switch.{DEV}_buzzer")
+    await hass.async_block_till_done()
+    assert state(hass, climate) == "unavailable"
+    await _poll(hass, entry)
+    assert state(hass, climate) == "unavailable"
+
+    boiler.failing = False
+    await _poll(hass, entry)
+    assert state(hass, climate) != "unavailable"
+
+
+async def test_period_write_is_planned_from_a_fresh_read(hass, entry, boiler):
+    """The app moved the end hour since the last poll; plan from the device."""
+    boiler.registers[50:52] = _with_end_hour(16)
+    await _poll(hass, entry)
+    boiler.registers[50:52] = _with_end_hour(8)  # the app, between polls
+    await _call(hass, "number", "set_value", f"number.{DEV}_period_end_hour", value=17)
+    assert _device_period(boiler).end_hour == 17
+    assert state(hass, f"number.{DEV}_period_end_hour") == "17"
+
+
+async def test_period_day_is_written_when_the_cache_already_shows_it(
+    hass, entry, boiler
+):
+    boiler.registers[50] &= ~0x0004  # the app turned Monday off between polls
+    await _call(hass, "switch", "turn_on", f"switch.{DEV}_period_mon")
+    assert boiler.registers[50] & 0x0004
+    assert state(hass, f"switch.{DEV}_period_mon") == "on"
+
+
+async def test_period_already_on_the_device_is_not_rewritten(hass, entry, boiler):
+    boiler.registers[50] &= ~0x0004
+    await _poll(hass, entry)
+    assert state(hass, f"switch.{DEV}_period_mon") == "off"
+    boiler.registers[50] |= 0x0004  # the app turned Monday back on
+    await _call(hass, "switch", "turn_on", f"switch.{DEV}_period_mon")
+    assert boiler.writes == []
+    assert state(hass, f"switch.{DEV}_period_mon") == "on"
+
+
+async def test_period_write_that_does_not_settle_is_an_error(hass, entry, boiler):
+    """The app keeps rewriting the other half of the end hour: report, don't loop."""
+
+    def app_rewrites_other_half(register: int, value: int) -> None:
+        if register == 50:
+            boiler.registers[51] &= ~0x0003  # end hour bits 3..4 = 0
+        else:
+            boiler.registers[50] |= 0xE000  # end hour bits 0..2 = 7
+
+    boiler.on_write = app_rewrites_other_half
+    with pytest.raises(HomeAssistantError) as raised:
+        await _call(
+            hass, "number", "set_value", f"number.{DEV}_period_end_hour", value=16
+        )
+    assert not isinstance(raised.value, ServiceValidationError)
+    assert len(boiler.writes) == 2
+
+
+async def test_period_second_write_failure_names_the_intermediate_end_hour(
+    hass, entry, boiler
+):
+    boiler.registers[50:52] = _with_end_hour(23)
+    await _poll(hass, entry)
+
+    def second_write_times_out(register: int, value: int) -> None:
+        if boiler.writes:
+            raise TimeoutError
+
+    boiler.on_write = second_write_times_out
+    # 23 -> 8 writes r51 first, which leaves the end hour at 15.
+    with pytest.raises(HomeAssistantError, match="종료 시각이 15시"):
+        await _call(
+            hass, "number", "set_value", f"number.{DEV}_period_end_hour", value=8
+        )
+    assert [register for register, _ in boiler.writes] == [51]
+    assert _device_period(boiler).end_hour == 15
+
+
+async def test_period_split_write_survives_cancellation(hass, entry, boiler):
+    """Cancelling the call (automation mode: restart) still lands both halves."""
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    first_write = threading.Event()
+    release = threading.Event()
+
+    def hold_first_write(register: int, value: int) -> None:
+        if not boiler.writes:
+            first_write.set()
+            release.wait(5)
+
+    boiler.on_write = hold_first_write
+    call = asyncio.ensure_future(
+        _async_set_period(coordinator, lambda p: p.with_changes(end_hour=24))
+    )
+    assert await hass.async_add_executor_job(first_write.wait, 5)
+    call.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await call
+    await hass.async_block_till_done()
+    assert [register for register, _ in boiler.writes] == [50, 51]
+    assert _device_period(boiler).end_hour == 24
+
+
+async def test_storage_boiler_reports_hot_water_temperature(
+    hass, enable_custom_integrations
+):
+    boiler = FakeBoiler({10: 62})  # a tank (저탕식) reads its water temperature
+    await _setup(hass, boiler)
+    assert state(hass, f"sensor.{DEV}_hot_water_current_temperature") == "62"
+
+
+async def test_step_hot_water_hides_hot_water_temperature(
+    hass, enable_custom_integrations
+):
+    """The app shows r10 only when r21 > 9, i.e. not on step hot water models."""
+    boiler = FakeBoiler({3: 1, 21: 2, 22: 0, 10: 50})
+    await _setup(hass, boiler)
+    assert state(hass, f"sensor.{DEV}_hot_water_current_temperature") == "unknown"

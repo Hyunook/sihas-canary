@@ -273,10 +273,12 @@ class PeriodRepeat:
 
 
 def period_write_order(current: PeriodRepeat, target: PeriodRepeat) -> list[Reg]:
-    """Registers to write, ordered so the split end hour never passes through >24.
+    """Registers to write, ordered so the split end hour never reads above 24.
 
-    The end hour spans both registers; writing the side that lowers it first keeps
-    the intermediate value between the old and the new value.
+    The end hour spans both registers, so between the two writes the device holds
+    a mix of old and new bits. Writing the side that lowers it first only keeps
+    that mix at 24 or below; it is not between the old and the new value (7 -> 8
+    passes through 0), so the two writes must not be interrupted.
     """
     old50, old51 = current.to_registers()
     new50, new51 = target.to_registers()

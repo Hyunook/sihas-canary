@@ -6,6 +6,7 @@ each platform only calls the matching ``bcm_*`` factory below.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
@@ -22,7 +23,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import EntityCategory, UnitOfTemperature, UnitOfTime
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
 from .bcm import BcmCoordinator, BcmEntity, BcmState
 from .bcm_codec import (
@@ -78,21 +79,70 @@ def _period(state: BcmState) -> PeriodRepeat:
     return PeriodRepeat.from_registers(state[Reg.PERIOD_A], state[Reg.PERIOD_B])
 
 
+class _PeriodUnchanged(ServiceValidationError):
+    """The fresh read already holds the target, so nothing is written.
+
+    A validation error raised from ``resolve`` makes the transaction publish its
+    fresh read; this reuses that to show the device state without writing.
+    """
+
+
 async def _async_set_period(
     coordinator: BcmCoordinator, change: Callable[[PeriodRepeat], PeriodRepeat]
 ) -> None:
-    current = _period(coordinator.data)
-    try:
-        target = change(current)
-    except ValueError as err:
-        raise ServiceValidationError(str(err)) from err
-    for register in period_write_order(current, target):
-        index = 0 if register == Reg.PERIOD_A else 1
-        await _async_write(
-            coordinator,
-            register,
-            lambda state, index=index: change(_period(state)).to_registers()[index],
+    """Apply ``change`` to r50/r51, one register per transaction.
+
+    Each write is planned from its transaction's fresh read: the app may have
+    changed r50/r51 since the last poll, so the cache cannot pick the registers.
+    """
+
+    def plan(state: BcmState) -> list[tuple[Reg, int]]:
+        current = _period(state)
+        try:
+            target = change(current)
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        registers = (Reg.PERIOD_A, Reg.PERIOD_B)
+        values = dict(zip(registers, target.to_registers(), strict=True))
+        order = period_write_order(current, target)
+        return [(register, values[register]) for register in order]
+
+    def resolve(state: BcmState) -> tuple[Reg, int]:
+        steps = plan(state)
+        if not steps:
+            raise _PeriodUnchanged("구간반복이 이미 요청한 값입니다")
+        return steps[0]
+
+    async def apply() -> None:
+        # The end hour spans both registers, so a change takes at most two writes.
+        for attempt in range(2):
+            try:
+                await coordinator._async_command(resolve)  # noqa: SLF001
+            except _PeriodUnchanged:
+                return
+            except HomeAssistantError as err:
+                if attempt == 0:
+                    raise
+                end_hour = _period(coordinator.data).end_hour
+                raise HomeAssistantError(
+                    f"구간반복을 반만 썼습니다 — 종료 시각이 {end_hour}시(중간값)로 "
+                    f"남았을 수 있습니다: {err}"
+                ) from err
+            if not plan(coordinator.data):
+                return
+        end_hour = _period(coordinator.data).end_hour
+        raise HomeAssistantError(
+            f"구간반복이 두 번 써도 확정되지 않았습니다(종료 시각 {end_hour}시) — "
+            "앱에서 동시에 바뀌고 있을 수 있습니다"
         )
+
+    # A cancelled call (automation mode: restart) must not stop between the writes.
+    task = asyncio.create_task(apply())
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
 
 
 # --------------------------------------------------------------------------- select
@@ -540,6 +590,14 @@ class BcmControllerModelSensor(BcmEntity, SensorEntity):
         }
 
 
+def _hot_water_temperature(state: BcmState) -> int | None:
+    # As in the app (1.8.14 detail view): r10 is shown only when r21 > 9 and
+    # r10 != 0. An instantaneous (순간식) boiler such as NCTR-60 has no tank and
+    # always reads 0, which must not be recorded as 0 ℃.
+    value = state[Reg.HOT_WATER_TEMPERATURE]
+    return value if value and state[Reg.HOT_WATER_MAX] > 9 else None
+
+
 def bcm_sensors(coordinator: BcmCoordinator) -> list[SensorEntity]:
     def celsius(register: Reg) -> Callable[[BcmState], int]:
         return lambda state: state[register]
@@ -556,7 +614,7 @@ def bcm_sensors(coordinator: BcmCoordinator) -> list[SensorEntity]:
         BcmRegisterSensor(
             coordinator,
             "hot_water_current_temperature",
-            celsius(Reg.HOT_WATER_TEMPERATURE),
+            _hot_water_temperature,
             device_class=SensorDeviceClass.TEMPERATURE,
             unit=UnitOfTemperature.CELSIUS,
             state_class=SensorStateClass.MEASUREMENT,

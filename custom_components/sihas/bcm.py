@@ -224,6 +224,7 @@ class BcmCoordinator(DataUpdateCoordinator[BcmState]):
                     try:
                         register, value = resolve(before)
                     except ServiceValidationError:
+                        self._skipped_polls = 0
                         self.async_set_updated_data(before)
                         raise
                     await self.hass.async_add_executor_job(
@@ -233,8 +234,11 @@ class BcmCoordinator(DataUpdateCoordinator[BcmState]):
                 except ServiceValidationError:
                     raise
                 except Exception as err:
+                    # Else the next failed poll would republish the stale state.
+                    self._skipped_polls = MAX_SKIPPED_POLLS
                     self.async_set_update_error(UpdateFailed(str(err)))
                     raise HomeAssistantError(f"BCM command failed: {err}") from err
+                self._skipped_polls = 0
                 self.async_set_updated_data(after)
                 if after[register] != value:
                     raise HomeAssistantError(
