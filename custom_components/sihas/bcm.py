@@ -119,6 +119,9 @@ class BcmState:
 BCM_TIMEOUT: Final = 1.5
 # Isolated failed polls keep the last state; this many in a row are tolerated.
 MAX_SKIPPED_POLLS: Final = 2
+# r8 flips between neighbouring tenths (26.4/26.5) on the device itself, so 5 s
+# polling wrote ~5,300 recorder rows a day per entity. Commands read for themselves.
+BCM_POLL_INTERVAL: Final = timedelta(seconds=30)
 
 
 class BcmClient:
@@ -153,7 +156,7 @@ class BcmCoordinator(DataUpdateCoordinator[BcmState]):
             _LOGGER,
             name=f"BCM-{entry.data[CONF_MAC]}",
             config_entry=entry,
-            update_interval=timedelta(seconds=5),
+            update_interval=BCM_POLL_INTERVAL,
         )
         self.entry = entry
         self.client = BcmClient(entry.data[CONF_IP])
